@@ -1,0 +1,133 @@
+image: quay.io/atos_bigiot/build_base:alpine
+
+variables:
+  PRJ_NAME: marketplace-apigw
+  DEPLOYABLE_IMAGE: registry.gitlab.com/big-iot/$PRJ_NAME:$CI_BUILD_REF
+  DEPLOYABLE_IMAGE_LATEST: registry.gitlab.com/big-iot/$PRJ_NAME:latest
+  DEPLOYABLE_IMAGE_INT: registry.gitlab.com/big-iot/$PRJ_NAME:int
+  DEPLOYABLE_IMAGE_PROD: registry.gitlab.com/big-iot/$PRJ_NAME:prod
+  DEPLOYABLE_IMAGE_PILOT: registry.gitlab.com/big-iot/$PRJ_NAME:pilot
+  OPENSHIFT_CONSOLE: https://shiftmaster.big-iot.org:8443
+  OPENSHIFT_REGISTRY: docker-registry-default.big-iot.org
+  OPENSHIFT_APP: marketplace-apigw
+  OPENSHIFT_PROJECT_DEV: marketplace-dev
+  OPENSHIFT_IMAGE_DEV: $OPENSHIFT_REGISTRY/$OPENSHIFT_PROJECT_DEV/$OPENSHIFT_APP:$CI_BUILD_REF
+  OPENSHIFT_IMAGE_DEV_LATEST: $OPENSHIFT_REGISTRY/$OPENSHIFT_PROJECT_DEV/$OPENSHIFT_APP:latest
+  OPENSHIFT_PROJECT_INT: marketplace-int
+  OPENSHIFT_IMAGE_INT: $OPENSHIFT_REGISTRY/$OPENSHIFT_PROJECT_INT/$OPENSHIFT_APP:$CI_BUILD_REF
+  OPENSHIFT_IMAGE_INT_LATEST: $OPENSHIFT_REGISTRY/$OPENSHIFT_PROJECT_INT/$OPENSHIFT_APP:latest
+  OPENSHIFT_PROJECT_PROD: marketplace-prod
+  OPENSHIFT_IMAGE_PROD: $OPENSHIFT_REGISTRY/$OPENSHIFT_PROJECT_PROD/$OPENSHIFT_APP:$CI_BUILD_REF
+  OPENSHIFT_IMAGE_PROD_LATEST: $OPENSHIFT_REGISTRY/$OPENSHIFT_PROJECT_PROD/$OPENSHIFT_APP:latest
+
+  PROJECTDEPS: NEXUS
+
+stages:
+- Unittest
+- Publish
+- Development
+- Integration
+- Production
+- Pilot
+
+run-unittest:
+  stage: Unittest
+  tags:
+  - docker
+  script:
+  - sbt -mem 2048 clean compile test
+
+# This job publishes to GitLab's registry
+publish-to-registry:
+  stage: Publish
+  tags:
+  - docker
+  before_script:
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  script:
+  - sbt dist docker:stage
+  - cd ./target/docker/stage
+  - docker build --pull -t $DEPLOYABLE_IMAGE .
+  - docker push $DEPLOYABLE_IMAGE
+  - docker tag $DEPLOYABLE_IMAGE $DEPLOYABLE_IMAGE_LATEST
+  - docker push $DEPLOYABLE_IMAGE_LATEST
+  only:
+  - master
+
+# This job automatically deploys to the Dev environment on OpenShift
+deploy-to-dev:
+  stage: Development
+  tags:
+  - docker
+  only:
+  - master
+  script:
+  # pull the image from GitLab (in case the publish stage was running on a different runner)
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  - docker pull $DEPLOYABLE_IMAGE_LATEST
+  # tag and push to OpenShift
+  - docker login -p $OPENSHIFT_TOKEN_DEV -u unused $OPENSHIFT_REGISTRY
+  - docker tag $DEPLOYABLE_IMAGE_LATEST $OPENSHIFT_IMAGE_DEV
+  - docker tag $OPENSHIFT_IMAGE_DEV $OPENSHIFT_IMAGE_DEV_LATEST
+  - docker push $OPENSHIFT_IMAGE_DEV
+  - docker push $OPENSHIFT_IMAGE_DEV_LATEST
+
+# Manual(!) job which deploys to the integration environment on OpenShift
+deploy-to-integration:
+  stage: Integration
+  tags:
+  - docker
+  only:
+  - master
+  when: manual
+  script:
+  # pull the image from GitLab (in case the publish stage was running on a different runner)
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  - docker pull $DEPLOYABLE_IMAGE
+  # tag and push to OpenShift
+  - docker login -p "$OPENSHIFT_TOKEN_INT" -u unused $OPENSHIFT_REGISTRY
+  - docker tag $DEPLOYABLE_IMAGE $OPENSHIFT_IMAGE_INT
+  - docker tag $DEPLOYABLE_IMAGE $OPENSHIFT_IMAGE_INT_LATEST
+  # Create an image tag in GitLab's registry for our convenience
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  - docker tag $DEPLOYABLE_IMAGE $DEPLOYABLE_IMAGE_INT
+  - docker push $DEPLOYABLE_IMAGE_INT
+  - docker push $OPENSHIFT_IMAGE_INT
+  - docker push $OPENSHIFT_IMAGE_INT_LATEST
+  
+# Manual(!) job which deploys to the production environment on OpenShift
+deploy-to-prod:
+  stage: Production
+  tags:
+  - docker
+  only:
+  - master
+  when: manual
+  script:
+  # pull the image from GitLab (in case the publish stage was running on a different runner)
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  - docker pull $DEPLOYABLE_IMAGE
+  # tag and push to OpenShift
+  - docker login -p "$OPENSHIFT_TOKEN_PROD" -u unused $OPENSHIFT_REGISTRY
+  - docker tag $DEPLOYABLE_IMAGE $OPENSHIFT_IMAGE_PROD
+  - docker tag $DEPLOYABLE_IMAGE $OPENSHIFT_IMAGE_PROD_LATEST
+  # Create an image tag in GitLab's registry for our convenience
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  - docker tag $DEPLOYABLE_IMAGE $DEPLOYABLE_IMAGE_PROD
+  - docker push $DEPLOYABLE_IMAGE_PROD
+  - docker push $OPENSHIFT_IMAGE_PROD
+  - docker push $OPENSHIFT_IMAGE_PROD_LATEST
+
+tag-for-pilot:
+  stage: Pilot
+  environment: 
+    name: pilot
+  before_script:
+  - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN registry.gitlab.com
+  script:
+  - docker tag $DEPLOYABLE_IMAGE $DEPLOYABLE_IMAGE_PILOT
+  - docker push $DEPLOYABLE_IMAGE_PILOT
+  when: manual
+  only:
+  - master
+  

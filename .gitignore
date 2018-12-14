@@ -1,0 +1,52 @@
+*.class
+*.log
+
+# project specific
+public/
+ui/public/
+
+# ui specific
+node_modules/
+
+# sbt specific
+.credentials
+.cache
+.history
+.lib/
+dist/*
+target/
+lib_managed/
+src_managed/
+project/boot/
+project/plugins/project/
+project/project/
+
+# gradle specific
+*/.gradle
+
+# Scala-IDE specific
+.scala_dependencies
+.worksheet
+
+# IntelliJ specific
+.idea
+
+# Eclipse specific
+.classpath
+.project
+.settings
+
+# Vagrant specific
+.vagrant
+vagrant.ssh.config
+
+# Ansible specific
+devops/localdev/ansible/dev.retry
+
+# Local VM environment
+customenv.sh
+
+desktop.ini
+.vscode
+.eslintrc
+/bin/
